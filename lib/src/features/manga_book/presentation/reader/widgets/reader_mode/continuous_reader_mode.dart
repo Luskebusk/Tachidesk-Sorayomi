@@ -77,6 +77,10 @@ class ContinuousReaderMode extends HookConsumerWidget {
     final ValueNotifier<bool> isUserScrolling = useState(false);
     final ValueNotifier<bool> isNavigatingFromSlider = useState(false);
     final ValueNotifier<int> lastReportedIndex = useState(currentIndex.value);
+    
+    // Track scroll direction to prevent backward scroll jumps
+    final ValueNotifier<int> previousPosition = useState(currentIndex.value);
+    final ValueNotifier<bool> isScrollingBackward = useState(false);
 
     // Dispose timer properly
     useEffect(() {
@@ -96,8 +100,14 @@ class ContinuousReaderMode extends HookConsumerWidget {
 
         // Don't update position if we're navigating from slider
         if (!isNavigatingFromSlider.value) {
-          // Always update position for UI display (navigation bar needs this)
-          _updatePositionForDisplay(positions, currentIndex, lastReportedIndex);
+          // Detect scroll direction by comparing with previous position
+          _updatePositionForDisplayWithDirection(
+            positions, 
+            currentIndex, 
+            lastReportedIndex,
+            previousPosition,
+            isScrollingBackward,
+          );
         }
 
         // Mark as user scrolling to prevent programmatic navigation
@@ -106,9 +116,13 @@ class ContinuousReaderMode extends HookConsumerWidget {
         // Cancel any pending programmatic navigation
         positionUpdateTimer.value?.cancel();
 
+        // Use longer delay for backward scrolling to prevent jumps
+        final Duration delay = isScrollingBackward.value 
+            ? const Duration(milliseconds: 1200)  // Longer delay for backward scrolling
+            : _ScrollConfig.programmaticNavigationDelay;
+
         // Only allow programmatic navigation after extended delay
-        positionUpdateTimer.value =
-            Timer(_ScrollConfig.programmaticNavigationDelay, () {
+        positionUpdateTimer.value = Timer(delay, () {
           isUserScrolling.value = false;
           isNavigatingFromSlider.value = false; // Reset slider navigation flag
         });
@@ -151,6 +165,10 @@ class ContinuousReaderMode extends HookConsumerWidget {
 
         // Update current index for display
         currentIndex.value = index;
+        
+        // Reset direction tracking since this is a forced navigation
+        previousPosition.value = index;
+        isScrollingBackward.value = false;
 
         // Force navigation for slider - bypass scroll state checks
         _jumpToPageSafely(
@@ -279,6 +297,58 @@ class ContinuousReaderMode extends HookConsumerWidget {
     if (mostVisible != null) {
       // Update current index for display but don't trigger programmatic scrolling
       currentIndex.value = mostVisible.index;
+    }
+  }
+
+  /// Direction-aware position tracking that reduces jumps during backward scrolling
+  static void _updatePositionForDisplayWithDirection(
+    List<ItemPosition> positions,
+    ValueNotifier<int> currentIndex,
+    ValueNotifier<int> lastReportedIndex,
+    ValueNotifier<int> previousPosition,
+    ValueNotifier<bool> isScrollingBackward,
+  ) {
+    if (positions.isEmpty) return;
+
+    // Find the item that's most visible for display purposes
+    ItemPosition? mostVisible;
+    double bestVisibleArea = 0.0;
+
+    // Use higher threshold for backward scrolling to prevent premature jumps
+    final double visibilityThreshold = isScrollingBackward.value
+        ? 0.6  // Higher threshold for backward scrolling
+        : _ScrollConfig.minVisibleAreaThreshold;
+
+    for (final ItemPosition position in positions) {
+      final double visibleArea = _calculateVisibleArea(position);
+
+      if (visibleArea > bestVisibleArea && visibleArea > visibilityThreshold) {
+        bestVisibleArea = visibleArea;
+        mostVisible = position;
+      }
+    }
+
+    if (mostVisible != null) {
+      // Detect scroll direction
+      final int newPosition = mostVisible.index;
+      final int currentPos = currentIndex.value;
+      
+      // Determine if we're scrolling backward (to lower indices)
+      isScrollingBackward.value = newPosition < previousPosition.value;
+      
+      // For backward scrolling, only update if the change is significant to prevent jumps
+      if (isScrollingBackward.value) {
+        // Only update position if we've moved significantly or if the visible area is very high
+        if ((newPosition - currentPos).abs() > 1 || bestVisibleArea > 0.8) {
+          currentIndex.value = newPosition;
+        }
+      } else {
+        // For forward scrolling, use normal update logic
+        currentIndex.value = newPosition;
+      }
+      
+      // Update previous position for next comparison
+      previousPosition.value = newPosition;
     }
   }
 
