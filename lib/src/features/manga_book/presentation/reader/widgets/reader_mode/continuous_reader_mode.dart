@@ -214,9 +214,8 @@ class ContinuousReaderMode extends HookConsumerWidget {
                 ),
               ),
               wrapper: (Widget child) => SizedBox(
-                height: scrollDirection == Axis.vertical
-                    ? context.height * .7
-                    : null,
+                // Remove fixed height constraint for webtoon mode to prevent artifacts
+                // Let images size naturally based on their aspect ratio
                 width: scrollDirection != Axis.vertical
                     ? context.width * .7
                     : null,
@@ -284,14 +283,13 @@ class ContinuousReaderMode extends HookConsumerWidget {
 
   /// Calculates visible area of an item position more accurately
   static double _calculateVisibleArea(ItemPosition position) {
+    // Clamp edges to viewport bounds [0.0, 1.0]
     final double leadingEdge = position.itemLeadingEdge.clamp(0.0, 1.0);
     final double trailingEdge = position.itemTrailingEdge.clamp(0.0, 1.0);
 
-    // Calculate the portion that's actually visible in the viewport
-    final double visibleStart = leadingEdge < 0 ? 0.0 : leadingEdge;
-    final double visibleEnd = trailingEdge > 1 ? 1.0 : trailingEdge;
-
-    return (visibleEnd - visibleStart).clamp(0.0, 1.0);
+    // Calculate visible area directly - no need for redundant checks
+    // since we already clamped to [0.0, 1.0]
+    return (trailingEdge - leadingEdge).clamp(0.0, 1.0);
   }
 
   /// Safe page jumping that respects user scroll state unless forced (for slider navigation)
